@@ -7,6 +7,7 @@ import requests
 import json
 import base64
 import io
+import time
 from pypdf import PdfReader
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -18,7 +19,7 @@ MODEL_VISION = "qwen/qwen3.6-27b"        # current Groq free-tier vision-capable
 # LOW-LEVEL API HELPERS
 # ---------------------------------------------------------------------------
 def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
-                max_tokens=1200, json_mode=False):
+                max_tokens=1200, json_mode=False, max_retries=4):
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "model": model,
@@ -29,9 +30,30 @@ def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
 
-    resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=90)
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    for attempt in range(max_retries):
+        resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=90)
+
+        if resp.status_code == 429:
+            # Rate limited — back off and retry rather than failing immediately
+            wait_seconds = 3 * (attempt + 1)
+            if attempt < max_retries - 1:
+                time.sleep(wait_seconds)
+                continue
+            raise RuntimeError(
+                "Groq's free-tier rate limit was hit repeatedly. Wait about a minute "
+                "before trying again, or space out your requests."
+            )
+
+        if resp.status_code == 401:
+            raise RuntimeError("Groq rejected the API key (401 Unauthorized). "
+                                "Double-check the key in the sidebar / Secrets.")
+
+        try:
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"Groq API error ({resp.status_code}): {resp.text[:300]}") from e
+
+        return resp.json()["choices"][0]["message"]["content"]
 
 
 def _call_groq_json(api_key, messages, model=MODEL_TEXT, temperature=0.3, max_tokens=1500):
@@ -270,3 +292,4 @@ content. Respond ONLY with valid JSON:
         {"role": "user", "content": user_content},
     ]
     return _call_groq_json(api_key, messages)
+                  
