@@ -6,6 +6,8 @@ All LLM calls (the "agents") live here, separate from the UI (app.py).
 import requests
 import json
 import base64
+import io
+from pypdf import PdfReader
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODEL_TEXT = "openai/gpt-oss-120b"      # current Groq free-tier text model (2026)
@@ -70,6 +72,60 @@ def ocr_extract_text(api_key, image_bytes, mime_type="image/png"):
         }
     ]
     return _call_groq(api_key, messages, model=MODEL_VISION, temperature=0.1, max_tokens=1500)
+
+
+# ---------------------------------------------------------------------------
+# PDF TEXT EXTRACTION (deterministic — not an LLM call)
+# Most PDFs (Word exports, typed documents) already contain real selectable
+# text, so this is fast, free, and more reliable than OCR for that case.
+# ---------------------------------------------------------------------------
+def extract_text_from_pdf(pdf_bytes):
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    pages_text = []
+    for page in reader.pages:
+        pages_text.append(page.extract_text() or "")
+    text = "\n".join(pages_text).strip()
+    return text
+
+
+def pdf_has_extractable_text(pdf_bytes):
+    """Returns False for scanned/image-only PDFs where extract_text() finds nothing."""
+    text = extract_text_from_pdf(pdf_bytes)
+    return len(text.strip()) > 20
+
+
+def extract_text_from_scanned_pdf(api_key, pdf_bytes):
+    """Fallback for scanned/photographed PDFs with no real text layer:
+    renders each page as an image and runs the OCR Agent on it."""
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    all_text = []
+    for page_num in range(len(doc)):
+        pix = doc[page_num].get_pixmap(dpi=200)
+        img_bytes = pix.tobytes("png")
+        page_text = ocr_extract_text(api_key, img_bytes, mime_type="image/png")
+        all_text.append(page_text)
+    return "\n\n".join(all_text)
+
+
+def smart_extract_document(api_key, uploaded_file):
+    """
+    Given a Streamlit UploadedFile (image or PDF), returns extracted text
+    using the right method automatically:
+      - image -> OCR Agent (vision model)
+      - PDF with real text layer -> direct extraction (fast, free, no AI needed)
+      - PDF with no text layer (scanned) -> render pages + OCR Agent
+    """
+    filename = uploaded_file.name.lower()
+    file_bytes = uploaded_file.getvalue()
+
+    if filename.endswith(".pdf"):
+        if pdf_has_extractable_text(file_bytes):
+            return extract_text_from_pdf(file_bytes), "pdf_text"
+        else:
+            return extract_text_from_scanned_pdf(api_key, file_bytes), "pdf_ocr"
+    else:
+        return ocr_extract_text(api_key, file_bytes, mime_type=uploaded_file.type), "image_ocr"
 
 
 # ---------------------------------------------------------------------------
