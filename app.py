@@ -5,6 +5,7 @@ Run with: streamlit run app.py
 
 import streamlit as st
 import json
+import time
 import agents
 import ui
 
@@ -66,7 +67,11 @@ if "records" not in st.session_state:
 if "difficulty" not in st.session_state:
     st.session_state.difficulty = None
 if "role" not in st.session_state:
-    st.session_state.role = None
+    # Recover role from the URL if the browser reloaded/killed the session
+    # (common on mobile when switching apps). This is a soft convenience,
+    # not real per-user security — fine given the shared-passcode model.
+    role_from_url = st.query_params.get("role")
+    st.session_state.role = role_from_url if role_from_url in ("teacher", "student") else None
 
 # ---------------------------------------------------------------------------
 # LOGIN SCREEN
@@ -80,6 +85,7 @@ def show_login():
         if st.button("Login as Teacher"):
             if pw == TEACHER_PASSCODE:
                 st.session_state.role = "teacher"
+                st.query_params["role"] = "teacher"
                 st.rerun()
             else:
                 st.error("Incorrect passcode.")
@@ -89,6 +95,7 @@ def show_login():
         if st.button("Login as Student"):
             if pw == STUDENT_PASSCODE:
                 st.session_state.role = "student"
+                st.query_params["role"] = "student"
                 st.rerun()
             else:
                 st.error("Incorrect passcode.")
@@ -98,7 +105,11 @@ if st.session_state.role is None:
     show_login()
     st.stop()
 
-ui.inject_theme(st.session_state.role)
+if "accent_color" not in st.session_state:
+    accent_from_url = st.query_params.get("accent")
+    st.session_state.accent_color = f"#{accent_from_url}" if accent_from_url else "#4c4fe0"
+
+ui.inject_theme(st.session_state.role, st.session_state.accent_color)
 
 # ---------------------------------------------------------------------------
 # SIDEBAR
@@ -107,6 +118,14 @@ st.sidebar.title("📝 FairGrade AI")
 st.sidebar.success(f"Logged in as: **{st.session_state.role.title()}**")
 if st.sidebar.button("Log out"):
     st.session_state.role = None
+    st.query_params.clear()
+    st.rerun()
+
+picked_color = st.sidebar.color_picker("🎨 Accent color", value=st.session_state.accent_color)
+if picked_color != st.session_state.accent_color:
+    st.session_state.accent_color = picked_color
+    st.query_params["accent"] = picked_color.lstrip("#")
+    st.query_params["role"] = st.session_state.role
     st.rerun()
 
 api_key = st.secrets.get("GROQ_API_KEY", "")
@@ -124,6 +143,10 @@ st.sidebar.caption(
 st.sidebar.markdown("---")
 st.sidebar.caption("⚠️ Demo tip: paste typed answers, or use a clearly printed/scanned sheet "
                     "for the image path. Messy handwriting can reduce OCR accuracy.")
+st.sidebar.caption("💡 If the app ever kicks you back to login after switching apps, "
+                    "that's your phone's browser reloading the tab to save memory. "
+                    "Your login and accent color will restore automatically — but "
+                    "re-paste any form text you hadn't submitted yet.")
 
 # ---------------------------------------------------------------------------
 # ROLE-BASED TABS
@@ -166,44 +189,51 @@ if tab_teacher is not None:
                 st.error("Please fill in the question paper, answer key, rubric, and student answer.")
             else:
                 progress = st.progress(0, text="Starting evaluation...")
+                try:
+                    progress.progress(10, text="Evaluator A grading independently...")
+                    primary_eval, primary_err = agents.run_evaluator(
+                        api_key, "Evaluator A", question_paper, answer_key, rubric, student_answer)
 
-                progress.progress(10, text="Evaluator A grading independently...")
-                primary_eval, primary_err = agents.run_evaluator(
-                    api_key, "Evaluator A", question_paper, answer_key, rubric, student_answer)
+                    time.sleep(1)  # small gap to help avoid free-tier rate limits
+                    progress.progress(35, text="Evaluator B grading independently...")
+                    secondary_eval, secondary_err = agents.run_evaluator(
+                        api_key, "Evaluator B", question_paper, answer_key, rubric, student_answer)
 
-                progress.progress(35, text="Evaluator B grading independently...")
-                secondary_eval, secondary_err = agents.run_evaluator(
-                    api_key, "Evaluator B", question_paper, answer_key, rubric, student_answer)
-
-                if primary_err or secondary_err:
-                    st.error("One of the evaluator agents returned an unexpected format. "
-                             "Try again, or check the raw output below.")
-                    st.code(primary_err or "")
-                    st.code(secondary_err or "")
-                else:
-                    progress.progress(60, text="Moderator Agent reconciling both evaluations...")
-                    final_eval, mod_err = agents.run_moderator(
-                        api_key, question_paper, rubric, primary_eval, secondary_eval)
-
-                    if mod_err:
-                        st.error("Moderator Agent returned an unexpected format.")
-                        st.code(mod_err)
+                    if primary_err or secondary_err:
+                        st.error("One of the evaluator agents returned an unexpected format. "
+                                 "Try again, or check the raw output below.")
+                        st.code(primary_err or "")
+                        st.code(secondary_err or "")
                     else:
-                        progress.progress(85, text="Feedback Agent writing personalized report...")
-                        feedback, fb_err = agents.run_feedback(api_key, final_eval, student_answer)
+                        time.sleep(1)
+                        progress.progress(60, text="Moderator Agent reconciling both evaluations...")
+                        final_eval, mod_err = agents.run_moderator(
+                            api_key, question_paper, rubric, primary_eval, secondary_eval)
 
-                        progress.progress(100, text="Done!")
+                        if mod_err:
+                            st.error("Moderator Agent returned an unexpected format.")
+                            st.code(mod_err)
+                        else:
+                            time.sleep(1)
+                            progress.progress(85, text="Feedback Agent writing personalized report...")
+                            feedback, fb_err = agents.run_feedback(api_key, final_eval, student_answer)
 
-                        st.session_state.records[student_name] = {
-                            "question_paper": question_paper,
-                            "rubric": rubric,
-                            "student_answer": student_answer,
-                            "primary_eval": primary_eval,
-                            "secondary_eval": secondary_eval,
-                            "final_eval": final_eval,
-                            "feedback": feedback if not fb_err else None,
-                        }
-                        st.success(f"Evaluation complete for {student_name}! Check the Results tab.")
+                            progress.progress(100, text="Done!")
+
+                            st.session_state.records[student_name] = {
+                                "question_paper": question_paper,
+                                "rubric": rubric,
+                                "student_answer": student_answer,
+                                "primary_eval": primary_eval,
+                                "secondary_eval": secondary_eval,
+                                "final_eval": final_eval,
+                                "feedback": feedback if not fb_err else None,
+                            }
+                            st.success(f"Evaluation complete for {student_name}! Check the Results tab.")
+                except RuntimeError as e:
+                    st.error(f"⚠️ {e}")
+                except Exception as e:
+                    st.error(f"⚠️ Something went wrong talking to the AI: {e}")
 
 # ---------------------------------------------------------------------------
 # RESULTS TAB
@@ -288,27 +318,31 @@ with tab_appeal:
                 elif not appeal_reason:
                     st.error("Please explain your reason for appeal.")
                 else:
-                    with st.spinner("Appeal Agent reviewing your case..."):
-                        # find the question text from the original question paper (best effort)
-                        result, err = agents.run_appeal(
-                            api_key,
-                            q_data.get("question_no"),
-                            record["question_paper"],
-                            record["student_answer"],
-                            q_data.get("reasoning"),
-                            record["rubric"],
-                            appeal_reason,
-                        )
-                    if err:
-                        st.error("Appeal Agent returned an unexpected format.")
-                        st.code(err)
-                    else:
-                        ui.appeal_result_card(
-                            result.get("outcome", "Unknown"),
-                            result.get("original_marks"),
-                            result.get("revised_marks"),
-                            result.get("explanation"),
-                        )
+                    try:
+                        with st.spinner("Appeal Agent reviewing your case..."):
+                            result, err = agents.run_appeal(
+                                api_key,
+                                q_data.get("question_no"),
+                                record["question_paper"],
+                                record["student_answer"],
+                                q_data.get("reasoning"),
+                                record["rubric"],
+                                appeal_reason,
+                            )
+                        if err:
+                            st.error("Appeal Agent returned an unexpected format.")
+                            st.code(err)
+                        else:
+                            ui.appeal_result_card(
+                                result.get("outcome", "Unknown"),
+                                result.get("original_marks"),
+                                result.get("revised_marks"),
+                                result.get("explanation"),
+                            )
+                    except RuntimeError as e:
+                        st.error(f"⚠️ {e}")
+                    except Exception as e:
+                        st.error(f"⚠️ Something went wrong talking to the AI: {e}")
         else:
             st.warning("No question-wise data found for this student.")
 
@@ -326,13 +360,18 @@ if tab_difficulty is not None:
             elif not qp_for_difficulty:
                 st.error("Paste a question paper first.")
             else:
-                with st.spinner("Difficulty Analysis Agent working..."):
-                    result, err = agents.run_difficulty_analysis(api_key, qp_for_difficulty)
-                if err:
-                    st.error("Unexpected format returned.")
-                    st.code(err)
-                else:
-                    st.session_state.difficulty = result
+                try:
+                    with st.spinner("Difficulty Analysis Agent working..."):
+                        result, err = agents.run_difficulty_analysis(api_key, qp_for_difficulty)
+                    if err:
+                        st.error("Unexpected format returned.")
+                        st.code(err)
+                    else:
+                        st.session_state.difficulty = result
+                except RuntimeError as e:
+                    st.error(f"⚠️ {e}")
+                except Exception as e:
+                    st.error(f"⚠️ Something went wrong talking to the AI: {e}")
 
         if st.session_state.difficulty:
             d = st.session_state.difficulty
