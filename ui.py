@@ -7,12 +7,30 @@ keeps its working architecture while adopting the indigo/navy + amber
 
 import streamlit as st
 
-BASE_CSS = """
+DEFAULT_ACCENT = "#4c4fe0"
+
+
+def _lighten(hex_color, amount=0.85):
+    """Returns a pale tint of hex_color, used for soft badge/card backgrounds."""
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) != 6:
+        hex_color = "4c4fe0"
+    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    r = int(r + (255 - r) * amount)
+    g = int(g + (255 - g) * amount)
+    b = int(b + (255 - b) * amount)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+BASE_CSS_TEMPLATE = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+
 :root {
     --fg-navy: #1b2140;
     --fg-navy-light: #262d52;
-    --fg-indigo: #4c4fe0;
+    --fg-accent: __ACCENT__;
+    --fg-accent-soft: __ACCENT_SOFT__;
     --fg-amber: #f5a524;
     --fg-amber-soft: #fdebc8;
     --fg-green: #2fbf71;
@@ -25,7 +43,13 @@ BASE_CSS = """
 /* ---- App background & typography ---- */
 .stApp {
     background: linear-gradient(180deg, var(--fg-cream) 0%, #f3f0ea 100%);
-    font-family: 'Inter', 'Poppins', -apple-system, sans-serif;
+    font-family: 'Inter', -apple-system, sans-serif;
+}
+h1, h2, h3, .fg-login-hero h1 {
+    font-family: 'Poppins', -apple-system, sans-serif;
+}
+p, span, div, label, li {
+    font-family: 'Inter', -apple-system, sans-serif;
 }
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, var(--fg-navy) 0%, var(--fg-navy-light) 100%);
@@ -40,38 +64,86 @@ h1, h2, h3 {
     font-weight: 700;
 }
 
-/* ---- Buttons: hover glow + click pulse ---- */
+/* =====================================================================
+   TOUCH / TAP FEEDBACK
+   Hover doesn't fire reliably on touchscreens, so every interactive
+   element gets a real :active (tap) glow, not just :hover.
+   ===================================================================== */
+
+.stButton > button,
+.stTabs [data-baseweb="tab"],
+div[data-baseweb="select"] > div,
+.stTextInput input,
+.stTextArea textarea,
+.stFileUploader section,
+.streamlit-expanderHeader,
+label[data-baseweb="radio"] {
+    transition: box-shadow 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
+}
+
+/* Buttons */
 .stButton > button {
     border-radius: 10px;
-    border: 1px solid var(--fg-indigo);
+    border: 1px solid var(--fg-accent);
     background: white;
     color: var(--fg-navy);
     font-weight: 600;
-    transition: box-shadow 0.2s ease, transform 0.15s ease;
 }
 .stButton > button:hover {
-    box-shadow: 0 0 0 4px rgba(76, 79, 224, 0.18), 0 4px 14px rgba(76, 79, 224, 0.25);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--fg-accent) 20%, transparent),
+                0 4px 14px color-mix(in srgb, var(--fg-accent) 30%, transparent);
     transform: translateY(-1px);
-    border-color: var(--fg-indigo);
 }
 .stButton > button:active {
-    animation: fg-pulse 0.15s ease;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--fg-accent) 35%, transparent);
+    transform: scale(0.97);
 }
 button[kind="primary"] {
-    background: linear-gradient(135deg, var(--fg-indigo), #6a6df0) !important;
+    background: linear-gradient(135deg, var(--fg-accent), color-mix(in srgb, var(--fg-accent) 70%, white)) !important;
     color: white !important;
     border: none !important;
 }
-button[kind="primary"]:hover {
-    box-shadow: 0 0 0 5px rgba(76, 79, 224, 0.25), 0 6px 18px rgba(76, 79, 224, 0.35) !important;
-}
-@keyframes fg-pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(0.97); }
-    100% { transform: scale(1); }
+button[kind="primary"]:active {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--fg-accent) 40%, transparent) !important;
+    transform: scale(0.97);
 }
 
-/* ---- Tabs styled like a top nav ---- */
+/* Text inputs / text areas — glow on focus AND on tap */
+.stTextInput input:focus,
+.stTextArea textarea:focus,
+.stTextInput input:active,
+.stTextArea textarea:active {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg-accent) 25%, transparent) !important;
+    border-color: var(--fg-accent) !important;
+}
+
+/* Select boxes */
+div[data-baseweb="select"] > div:focus-within,
+div[data-baseweb="select"] > div:active {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg-accent) 25%, transparent) !important;
+    border-color: var(--fg-accent) !important;
+}
+
+/* Radio option labels — glow the tapped option */
+label[data-baseweb="radio"]:active,
+label[data-baseweb="radio"]:focus-within {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg-accent) 20%, transparent);
+    border-radius: 8px;
+}
+
+/* File uploader */
+.stFileUploader section:active,
+.stFileUploader section:focus-within {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg-accent) 25%, transparent) !important;
+    border-color: var(--fg-accent) !important;
+}
+
+/* Expander headers */
+.streamlit-expanderHeader:active {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg-accent) 20%, transparent);
+}
+
+/* ---- Tabs styled like a top nav, with tap glow ---- */
 .stTabs [data-baseweb="tab-list"] {
     gap: 4px;
     border-bottom: 2px solid #e8e4da;
@@ -81,6 +153,9 @@ button[kind="primary"]:hover {
     padding: 10px 18px;
     font-weight: 600;
     color: var(--fg-navy);
+}
+.stTabs [data-baseweb="tab"]:active {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg-accent) 25%, transparent);
 }
 .stTabs [aria-selected="true"] {
     background: var(--fg-navy) !important;
@@ -94,10 +169,10 @@ button[kind="primary"]:hover {
     padding: 18px 20px;
     margin-bottom: 14px;
     box-shadow: 0 2px 10px rgba(27, 33, 64, 0.08);
-    border-left: 5px solid var(--fg-indigo);
+    border-left: 5px solid var(--fg-accent);
     transition: box-shadow 0.2s ease, transform 0.15s ease;
 }
-.fg-card:hover {
+.fg-card:active, .fg-card:hover {
     box-shadow: 0 4px 20px rgba(27, 33, 64, 0.14);
     transform: translateY(-1px);
 }
@@ -115,9 +190,9 @@ button[kind="primary"]:hover {
 .fg-badge-full   { background: var(--fg-green-soft); color: #1a7a4c; }
 .fg-badge-partial{ background: var(--fg-amber-soft); color: #92600a; }
 .fg-badge-missed { background: var(--fg-red-soft);   color: #b53034; }
-.fg-badge-neutral{ background: #e9e8fb; color: var(--fg-indigo); }
+.fg-badge-neutral{ background: var(--fg-accent-soft); color: var(--fg-accent); }
 
-/* ---- Appeal outcome card (card-flip flavor via a reveal border) ---- */
+/* ---- Appeal outcome card ---- */
 .fg-appeal-card {
     border-radius: 14px;
     padding: 20px;
@@ -149,7 +224,7 @@ button[kind="primary"]:hover {
 
 /* ---- Score hero ---- */
 .fg-score-hero {
-    background: linear-gradient(135deg, var(--fg-navy), var(--fg-indigo));
+    background: linear-gradient(135deg, var(--fg-navy), var(--fg-accent));
     color: white;
     border-radius: 18px;
     padding: 26px 30px;
@@ -182,11 +257,12 @@ button[kind="primary"]:hover {
     50% { transform: scale(1.08); }
 }
 .fg-login-hero h1 {
-    background: linear-gradient(135deg, var(--fg-navy), var(--fg-indigo));
+    background: linear-gradient(135deg, var(--fg-navy), var(--fg-accent));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     font-size: 2.1rem;
     margin-bottom: 0;
+    font-weight: 800;
 }
 .fg-login-hero p {
     color: #6b6f8a;
@@ -201,20 +277,25 @@ TEACHER_ACCENT_CSS = """
 </style>
 """
 
-STUDENT_ACCENT_CSS = """
+STUDENT_ACCENT_CSS_TEMPLATE = """
 <style>
-.fg-score-hero { background: linear-gradient(135deg, #b5720f, #f5a524); }
-.stTabs [aria-selected="true"] { background: #f5a524 !important; color: #241a03 !important; }
+.fg-score-hero { background: linear-gradient(135deg, #b5720f, __ACCENT__); }
+.stTabs [aria-selected="true"] { background: __ACCENT__ !important; color: #241a03 !important; }
 </style>
 """
 
 
-def inject_theme(role=None):
-    st.markdown(BASE_CSS, unsafe_allow_html=True)
+def inject_theme(role=None, accent=None):
+    accent = accent or DEFAULT_ACCENT
+    accent_soft = _lighten(accent, 0.88)
+    css = BASE_CSS_TEMPLATE.replace("__ACCENT__", accent).replace("__ACCENT_SOFT__", accent_soft)
+    st.markdown(css, unsafe_allow_html=True)
+
     if role == "teacher":
         st.markdown(TEACHER_ACCENT_CSS, unsafe_allow_html=True)
     elif role == "student":
-        st.markdown(STUDENT_ACCENT_CSS, unsafe_allow_html=True)
+        student_css = STUDENT_ACCENT_CSS_TEMPLATE.replace("__ACCENT__", "#f5a524")
+        st.markdown(student_css, unsafe_allow_html=True)
 
 
 def login_hero():
@@ -336,3 +417,4 @@ def strength_weakness_pill(text, kind="strength"):
         """,
         unsafe_allow_html=True,
     )
+    
