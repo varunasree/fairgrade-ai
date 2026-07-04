@@ -11,6 +11,43 @@ import ui
 st.set_page_config(page_title="FairGrade AI", page_icon="📝", layout="wide")
 ui.inject_theme()
 
+
+def document_input(label, session_key, api_key):
+    """Lets the user paste text OR upload an image/PDF, auto-extracting text
+    with the right method (PDF text layer, scanned-PDF OCR, or image OCR)."""
+    mode = st.radio(f"{label} — input method", ["Paste text", "Upload file (image or PDF)"],
+                     horizontal=True, key=f"{session_key}_mode")
+
+    if mode == "Paste text":
+        return st.text_area(label, height=150, key=f"{session_key}_text")
+
+    uploaded = st.file_uploader(f"Upload {label} (image or PDF)",
+                                 type=["png", "jpg", "jpeg", "pdf"], key=f"{session_key}_upload")
+    if uploaded and st.button(f"🔍 Extract Text — {label}", key=f"{session_key}_btn"):
+        if not api_key:
+            st.error("Enter your Groq API key in the sidebar first.")
+        else:
+            with st.spinner(f"Extracting {label}..."):
+                try:
+                    text, method = agents.smart_extract_document(api_key, uploaded)
+                    st.session_state[f"{session_key}_extracted"] = text
+                    st.session_state[f"{session_key}_method"] = method
+                except Exception as e:
+                    st.error(f"Extraction failed: {e}")
+
+    if f"{session_key}_extracted" in st.session_state:
+        method_label = {
+            "pdf_text": "✅ Extracted directly from the PDF's text layer — fast, no AI needed.",
+            "pdf_ocr": "🔍 Scanned PDF with no text layer — used the OCR Agent on each page.",
+            "image_ocr": "🔍 Image upload — used the OCR Agent.",
+        }.get(st.session_state.get(f"{session_key}_method", ""), "")
+        if method_label:
+            st.caption(method_label)
+        return st.text_area(f"Review & correct extracted {label} before grading",
+                             value=st.session_state[f"{session_key}_extracted"],
+                             height=200, key=f"{session_key}_review")
+    return ""
+
 # ---------------------------------------------------------------------------
 # LOGIN CREDENTIALS
 # Demo-grade role gate (shared passcode per role, not per-user accounts).
@@ -111,41 +148,15 @@ if tab_teacher is not None:
 
         col1, col2 = st.columns(2)
         with col1:
-            question_paper = st.text_area("Question Paper", height=150,
-                                           placeholder="Paste the exam questions here...")
-            answer_key = st.text_area("Answer Key / Model Answers", height=150,
-                                       placeholder="Paste the expected/model answers here...")
+            question_paper = document_input("Question Paper", "qp", api_key)
+            answer_key = document_input("Answer Key / Model Answers", "ak", api_key)
         with col2:
             rubric = st.text_area("Grading Rubric / Instructions", height=150,
                                    placeholder="E.g. Definition (2 marks), Example (2 marks), "
                                                "Application (4 marks), Conclusion (2 marks)...")
 
         st.subheader("Student's Answer Sheet")
-        input_mode = st.radio("Input method", ["Paste text", "Upload image (beta OCR)"], horizontal=True)
-
-        student_answer = ""
-        if input_mode == "Paste text":
-            student_answer = st.text_area("Student's Answers", height=200,
-                                           placeholder="Paste the student's written answers here...")
-        else:
-            uploaded = st.file_uploader("Upload a clear photo/scan of the answer sheet",
-                                         type=["png", "jpg", "jpeg"])
-            if uploaded and st.button("🔍 Extract Text (OCR Agent)"):
-                if not api_key:
-                    st.error("Enter your Groq API key in the sidebar first.")
-                else:
-                    with st.spinner("OCR Agent reading the answer sheet..."):
-                        try:
-                            extracted = agents.ocr_extract_text(api_key, uploaded.getvalue(),
-                                                                 mime_type=uploaded.type)
-                            st.session_state["_ocr_result"] = extracted
-                        except Exception as e:
-                            st.error(f"OCR failed: {e}")
-            if "_ocr_result" in st.session_state:
-                student_answer = st.text_area(
-                    "Extracted text (please review & correct before grading)",
-                    value=st.session_state["_ocr_result"], height=200
-                )
+        student_answer = document_input("Student's Answers", "sa", api_key)
 
         st.markdown("---")
         if st.button("🚀 Run Full Multi-Agent Evaluation", type="primary", use_container_width=True):
