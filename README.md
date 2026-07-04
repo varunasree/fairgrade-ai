@@ -1,145 +1,107 @@
-FairGrade AI
+# FairGrade AI
 
-Overview
+## Multi-Agent Examination Evaluation, Feedback & Appeal System
 
-FairGrade AI is a multi-agent examination evaluation system designed to make grading more transparent, consistent, and informative. Instead of simply assigning marks, the platform explains why marks were awarded or deducted, identifies recurring mistakes across the entire paper, provides personalized feedback, and supports re-evaluation through an appeal mechanism.
+FairGrade AI is an AI-powered multi-agent system that evaluates examination answer sheets fairly and transparently. It provides detailed mark explanations, personalized feedback, difficulty analysis, and an appeal mechanism for students.
 
-Features
+## Features
 
 - Dual independent evaluation agents for fair grading
 - Moderator agent for final score reconciliation
-- Question-wise mark justification
-- Detailed explanation for awarded and deducted marks
+- Explanation for awarded and deducted marks
 - Whole-paper mistake analysis
-- Common error detection
 - Personalized feedback and improvement suggestions
 - Difficulty estimation for question papers
 - Student appeal and re-evaluation system
 - Separate Teacher and Student portals
 
-System Architecture
+---
 
-Teacher Uploads:
-- Question Paper
-- Answer Key
-- Rubric
-- Student Answer Sheet
-          │
-          ▼
-OCR / Document Processing Agent
-          │
-          ▼
-Answer Extraction & Structuring
-          │
-          ▼
- ┌─────────────────────┐
- │ Evaluator Agent A   │
- └─────────────────────┘
-          │
-          ├──────────────┐
-          │              │
-          ▼              ▼
- ┌─────────────────────┐
- │ Evaluator Agent B   │
- └─────────────────────┘
-          │
-          └──────────────┘
-                 │
-                 ▼
-      ┌───────────────────┐
-      │ Moderator Agent   │
-      └───────────────────┘
-                 │
-                 ▼
-        Final Mark Allocation
-                 │
-                 ▼
- ┌─────────────────────────────────────┐
- │ Explanation Agent                   │
- │ • Why marks were awarded            │
- │ • Why marks were deducted           │
- │ • Question-wise justification       │
- └─────────────────────────────────────┘
-                 │
-                 ▼
- ┌─────────────────────────────────────┐
- │ Feedback Agent                      │
- │ • Overall paper mistakes            │
- │ • Common recurring errors           │
- │ • Strengths identified              │
- │ • Improvement suggestions           │
- └─────────────────────────────────────┘
-                 │
-                 ▼
- ┌─────────────────────────────────────┐
- │ Appeal / Re-evaluation Agent        │
- │ • Student challenge request         │
- │ • Recheck disputed questions        │
- └─────────────────────────────────────┘
-                 │
-                 ▼
-          Student Report
+## System Architecture
 
-Parallel Process:
+```text
+Teacher Upload
+      ↓
+OCR Processing
+      ↓
+Answer Extraction
+      ↓
+Dual Evaluation Agents
+      ↓
+Moderator Agent
+      ↓
+Final Marks
+      ↓
+Explanation Agent
+      ↓
+Feedback Agent
+      ↓
+Appeal System
+      ↓
+Student Report
+```
 
-Question Paper
-      │
-      ▼
-Difficulty Analysis Agent
-      │
-      ▼
-Difficulty Score + Exam Insights
+---
 
-How It Works
+## About the System
 
-1. Teachers upload the question paper, answer key, marking rubric, and student answer sheet.
-2. The OCR and Document Processing Agent extracts and structures the student's answers.
-3. Two independent evaluator agents assess the answers separately.
-4. A Moderator Agent compares both evaluations and determines the final score.
-5. The Explanation Agent generates question-wise reasoning for awarded and deducted marks.
-6. The Feedback Agent analyzes the entire paper and identifies common mistakes, strengths, and areas for improvement.
-7. The Difficulty Analysis Agent evaluates the complexity of the question paper and generates exam insights.
-8. Students can request re-evaluation through the Appeal Agent if they believe marks were unfairly deducted.
+Instead of relying on a single model, FairGrade AI uses multiple specialized AI agents, each responsible for a specific task. This approach improves fairness, consistency, transparency, and the quality of feedback provided to students.
 
-Tech Stack
+---
+
+## Tech Stack
 
 - Python
 - Streamlit
 - Groq API
 - OCR / Vision Processing
-- Multi-Agent AI Architecture
+- Multi-Agent Architecture
 
-Key Outputs
+---
 
-For Students
+## How It Works
 
-- Final score
-- Question-wise marks
-- Explanation for awarded marks
-- Explanation for deducted marks
-- Overall paper feedback
-- Common mistakes summary
-- Improvement recommendations
-- Appeal option
+1. Teacher uploads the question paper, answer key, rubric, and student answer sheet.
+2. OCR extracts and processes text from the answer sheet.
+3. Answers are structured and prepared for evaluation.
+4. Two independent evaluator agents assess the answers separately.
+5. A moderator agent compares both evaluations and determines the final score.
+6. An explanation agent generates reasons for awarded and deducted marks.
+7. A feedback agent analyzes the entire paper and provides improvement suggestions.
+8. Students can raise an appeal if they believe marks were unfairly deducted.
+9. A final student report is generated.
 
-For Teachers
+---
 
-- Automated evaluation
-- Consistent grading
-- Difficulty analysis
-- Performance insights
-- Faster assessment workflow
+## For Teachers
 
-Future Improvements
+- Save time on evaluation
+- Consistent and transparent grading
+- Better performance insights
+- Difficulty analysis of question papers
 
-- Real user authentication
+---
+
+## For Students
+
+- Transparent mark breakdown
+- Understand mistakes clearly
+- Personalized feedback
+- Opportunity to appeal evaluations
+
+---
+
+## Future Improvements
+
+- User authentication and role management
 - Database integration
 - Batch evaluation for entire classes
 - Advanced analytics dashboard
-- Handwriting-specific evaluation models
+- Improved handwriting recognition
 - Institution-wide deployment
-- Performance tracking across exams
 
-Author
+---
+
+## Author
 
 Developed as an AI-powered educational assessment system focused on fairness, transparency, consistency, and meaningful student feedback.
