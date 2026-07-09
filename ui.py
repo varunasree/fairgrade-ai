@@ -417,4 +417,3 @@ def strength_weakness_pill(text, kind="strength"):
         """,
         unsafe_allow_html=True,
     )
-    
