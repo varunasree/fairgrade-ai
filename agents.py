@@ -267,8 +267,8 @@ def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval)
         "Where they disagree, re-examine against the rubric and decide the fairer mark, "
         "explaining why you sided with one evaluator, split the difference, or overruled both. "
         + EVAL_SCHEMA_INSTRUCTIONS.replace(
-            '"reasoning": "specific explanation referencing the rubric and what was missing or correct"',
-            '"reasoning": "final reasoning, explicitly noting if/how the two evaluators disagreed and how it was resolved"'
+            '"reasoning": "ONE concise sentence, max ~20 words, on what was missing or correct"',
+            '"reasoning": "ONE concise sentence, max ~20 words — note only if evaluators disagreed and how it was resolved, otherwise just the verdict"'
         )
     )
     user_content = (
