@@ -215,7 +215,9 @@ if tab_teacher is not None:
                     primary_eval, primary_err = agents.run_evaluator(
                         api_key, "Evaluator A", question_paper, answer_key, rubric, student_answer)
 
-                    time.sleep(1)  # small gap to help avoid free-tier rate limits
+                    progress.progress(25, text="Pausing ~25s so Evaluator B doesn't hit "
+                                                "Groq's free-tier per-minute limit...")
+                    time.sleep(25)
                     progress.progress(35, text="Evaluator B grading independently...")
                     secondary_eval, secondary_err = agents.run_evaluator(
                         api_key, "Evaluator B", question_paper, answer_key, rubric, student_answer)
@@ -226,7 +228,8 @@ if tab_teacher is not None:
                         st.code(primary_err or "")
                         st.code(secondary_err or "")
                     else:
-                        time.sleep(1)
+                        progress.progress(50, text="Pausing ~25s before the Moderator Agent...")
+                        time.sleep(25)
                         progress.progress(60, text="Moderator Agent reconciling both evaluations...")
                         final_eval, mod_err = agents.run_moderator(
                             api_key, question_paper, rubric, primary_eval, secondary_eval)
@@ -235,7 +238,8 @@ if tab_teacher is not None:
                             st.error("Moderator Agent returned an unexpected format.")
                             st.code(mod_err)
                         else:
-                            time.sleep(1)
+                            progress.progress(75, text="Pausing ~25s before the Feedback Agent...")
+                            time.sleep(25)
                             progress.progress(85, text="Feedback Agent writing personalized report...")
                             feedback, fb_err = agents.run_feedback(api_key, final_eval, student_answer)
 
