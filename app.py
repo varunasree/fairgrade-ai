@@ -24,11 +24,17 @@ def document_input(label, session_key, api_key):
 
     uploaded = st.file_uploader(f"Upload {label} (image or PDF)",
                                  type=["png", "jpg", "jpeg", "pdf"], key=f"{session_key}_upload")
+
+    if uploaded and f"{session_key}_extracted" not in st.session_state:
+        st.warning(f"⚠️ File attached but not read yet — tap **'🔍 Extract Text — {label}'** "
+                   f"below, or this field will count as empty when you run the evaluation.")
+
     if uploaded and st.button(f"🔍 Extract Text — {label}", key=f"{session_key}_btn"):
         if not api_key:
             st.error("Enter your Groq API key in the sidebar first.")
         else:
-            with st.spinner(f"Extracting {label}..."):
+            with st.spinner(f"Extracting {label}... (can take up to a minute on a slow connection — "
+                            f"the image has to fully upload before the AI can read it)"):
                 try:
                     text, method = agents.smart_extract_document(api_key, uploaded)
                     st.session_state[f"{session_key}_extracted"] = text
@@ -183,10 +189,25 @@ if tab_teacher is not None:
 
         st.markdown("---")
         if st.button("🚀 Run Full Multi-Agent Evaluation", type="primary", use_container_width=True):
+            missing = []
+            if not question_paper:
+                missing.append("Question Paper")
+            if not answer_key:
+                missing.append("Answer Key")
+            if not rubric:
+                missing.append("Rubric")
+            if not student_answer:
+                missing.append("Student's Answers")
+
             if not api_key:
                 st.error("Enter your Groq API key in the sidebar first.")
-            elif not (question_paper and answer_key and rubric and student_answer):
-                st.error("Please fill in the question paper, answer key, rubric, and student answer.")
+            elif missing:
+                st.error(
+                    f"⚠️ Still empty: **{', '.join(missing)}**. "
+                    "If you uploaded a file for any of these, make sure you tapped its "
+                    "**'🔍 Extract Text'** button and the text actually appears in the box below it — "
+                    "uploading alone doesn't fill the field."
+                )
             else:
                 progress = st.progress(0, text="Starting evaluation...")
                 try:
