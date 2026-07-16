@@ -224,13 +224,15 @@ Respond ONLY with valid JSON in this exact shape (no markdown, no extra text):
       "max_marks": 10,
       "awarded_marks": 7,
       "breakdown": {"section_name": "marks awarded / marks possible as a string"},
-      "reasoning": "specific explanation referencing the rubric and what was missing or correct"
+      "reasoning": "ONE concise sentence, max ~20 words, on what was missing or correct"
     }
   ],
   "total_awarded": 0,
   "total_max": 0
 }
-Be specific and rubric-grounded. Never award marks without a stated reason.
+Be specific and rubric-grounded, but keep every "reasoning" field short — one sentence, not a
+paragraph. This is a hard length limit, not a suggestion: brevity matters more than completeness here.
+Never award marks without a stated reason.
 """
 
 def _evaluator_prompt(evaluator_label):
@@ -255,7 +257,7 @@ def run_evaluator(api_key, evaluator_label, question_paper, answer_key, rubric, 
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages, max_tokens=4000)
+    return _call_groq_json(api_key, messages, max_tokens=2200)
 # ---------------------------------------------------------------------------
 def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval):
     system_prompt = (
@@ -278,7 +280,7 @@ def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval)
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages, max_tokens=4000)
+    return _call_groq_json(api_key, messages, max_tokens=2200)
 
 
 # ---------------------------------------------------------------------------
