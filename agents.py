@@ -12,7 +12,7 @@ from pypdf import PdfReader
 from PIL import Image, ImageEnhance, ImageOps
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL_TEXT = "openai/gpt-oss-120b"      # current Groq free-tier text model (2026)
+MODEL_TEXT = "openai/gpt-oss-20b"        # smaller model = higher free-tier rate limits (2026)
 MODEL_VISION = "qwen/qwen3.6-27b"        # current Groq free-tier vision-capable model (2026)
 
 
