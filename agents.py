@@ -9,6 +9,7 @@ import base64
 import io
 import time
 from pypdf import PdfReader
+from PIL import Image, ImageEnhance, ImageOps
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODEL_TEXT = "openai/gpt-oss-120b"      # current Groq free-tier text model (2026)
@@ -19,7 +20,7 @@ MODEL_VISION = "qwen/qwen3.6-27b"        # current Groq free-tier vision-capable
 # LOW-LEVEL API HELPERS
 # ---------------------------------------------------------------------------
 def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
-                max_tokens=1200, json_mode=False, max_retries=4):
+                max_tokens=1200, json_mode=False, max_retries=4, timeout=90):
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
         "model": model,
@@ -31,7 +32,14 @@ def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
         payload["response_format"] = {"type": "json_object"}
 
     for attempt in range(max_retries):
-        resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=90)
+        try:
+            resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=timeout)
+        except requests.exceptions.Timeout:
+            raise RuntimeError(
+                "The request timed out — this usually means your internet connection is too slow "
+                "right now to upload the image/data in time. Try again on a stronger connection, "
+                "or use a smaller/lighter photo."
+            )
 
         if resp.status_code == 429:
             # Rate limited — back off and retry rather than failing immediately
@@ -48,6 +56,13 @@ def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
             raise RuntimeError("Groq rejected the API key (401 Unauthorized). "
                                 "Double-check the key in the sidebar / Secrets.")
 
+        if resp.status_code == 400 and "json_validate_failed" in resp.text:
+            raise RuntimeError(
+                "The AI's response got cut off before it finished (usually because the "
+                "question paper/answers are long and hit the output length limit). "
+                "Try again — if it keeps happening, shorten the rubric/answers a little."
+            )
+
         try:
             resp.raise_for_status()
         except requests.exceptions.HTTPError as e:
@@ -56,7 +71,7 @@ def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
         return resp.json()["choices"][0]["message"]["content"]
 
 
-def _call_groq_json(api_key, messages, model=MODEL_TEXT, temperature=0.3, max_tokens=1500):
+def _call_groq_json(api_key, messages, model=MODEL_TEXT, temperature=0.3, max_tokens=2500):
     """Calls the model in JSON mode and safely parses the result."""
     raw = _call_groq(api_key, messages, model=model, temperature=temperature,
                       max_tokens=max_tokens, json_mode=True)
@@ -73,10 +88,48 @@ def _call_groq_json(api_key, messages, model=MODEL_TEXT, temperature=0.3, max_to
 
 
 # ---------------------------------------------------------------------------
+# IMAGE PREPROCESSING (helps handwriting OCR meaningfully)
+# ---------------------------------------------------------------------------
+def preprocess_image_for_ocr(image_bytes):
+    """Cleans up a photo before sending it to the vision model:
+    - grayscale (removes color noise/shadows), contrast + sharpness boost
+    - resizes to a sensible range (helps accuracy without bloating upload size)
+    - saves as compressed JPEG, not PNG — much smaller upload on slow connections
+    This improves handwriting recognition without making uploads painfully slow."""
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        img = ImageOps.exif_transpose(img)  # fix phone camera rotation
+        img = img.convert("L")  # grayscale
+
+        # Keep the image in a sensible size range: upscale only if quite small,
+        # and cap the max side so a huge phone photo doesn't balloon upload size.
+        max_dim = max(img.size)
+        if max_dim < 1200:
+            scale = 1200 / max_dim
+            img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
+        elif max_dim > 1800:
+            scale = 1800 / max_dim
+            img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
+
+        img = ImageOps.autocontrast(img, cutoff=1)
+        img = ImageEnhance.Contrast(img).enhance(1.3)
+        img = ImageEnhance.Sharpness(img).enhance(1.5)
+
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=80, optimize=True)
+        return out.getvalue()
+    except Exception:
+        # If preprocessing fails for any reason, fall back to the original image
+        # rather than blocking the whole OCR pipeline.
+        return image_bytes
+
+
+# ---------------------------------------------------------------------------
 # AGENT 1 — OCR / EXTRACTION AGENT (image -> text)
 # ---------------------------------------------------------------------------
 def ocr_extract_text(api_key, image_bytes, mime_type="image/png"):
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    cleaned_bytes = preprocess_image_for_ocr(image_bytes)
+    b64 = base64.b64encode(cleaned_bytes).decode("utf-8")
     messages = [
         {
             "role": "user",
@@ -84,16 +137,25 @@ def ocr_extract_text(api_key, image_bytes, mime_type="image/png"):
                 {
                     "type": "text",
                     "text": (
-                        "Extract ALL text from this exam answer sheet exactly as written. "
-                        "Preserve question numbers if visible. Return plain text only, "
-                        "no commentary, no markdown formatting."
+                        "You are transcribing a HANDWRITTEN exam answer sheet. Handwriting varies in "
+                        "neatness, so read carefully and deliberately, letter by letter where needed, "
+                        "rather than guessing from shape alone.\n\n"
+                        "Rules:\n"
+                        "1. Transcribe every word exactly as written, preserving question numbers/labels.\n"
+                        "2. If a word or short phrase is genuinely illegible, write [illegible] in its place "
+                        "instead of guessing — never invent content that isn't visibly there.\n"
+                        "3. Preserve line breaks between distinct answers/questions where visible.\n"
+                        "4. Do not correct the student's spelling, grammar, or technical errors — "
+                        "transcribe exactly what is written, mistakes included.\n"
+                        "5. Return plain text only — no commentary, no markdown, no summary."
                     ),
                 },
-                {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
             ],
         }
     ]
-    return _call_groq(api_key, messages, model=MODEL_VISION, temperature=0.1, max_tokens=1500)
+    return _call_groq(api_key, messages, model=MODEL_VISION, temperature=0.0, max_tokens=3000,
+                       timeout=60, max_retries=2)
 
 
 # ---------------------------------------------------------------------------
@@ -193,11 +255,7 @@ def run_evaluator(api_key, evaluator_label, question_paper, answer_key, rubric, 
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages)
-
-
-# ---------------------------------------------------------------------------
-# AGENT 4 — MODERATOR AGENT
+    return _call_groq_json(api_key, messages, max_tokens=4000)
 # ---------------------------------------------------------------------------
 def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval):
     system_prompt = (
@@ -220,7 +278,7 @@ def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval)
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages)
+    return _call_groq_json(api_key, messages, max_tokens=4000)
 
 
 # ---------------------------------------------------------------------------
@@ -292,4 +350,3 @@ content. Respond ONLY with valid JSON:
         {"role": "user", "content": user_content},
     ]
     return _call_groq_json(api_key, messages)
-                  
