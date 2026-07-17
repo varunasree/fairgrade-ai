@@ -31,7 +31,7 @@ def document_input(label, session_key, api_key):
 
     if uploaded and st.button(f"🔍 Extract Text — {label}", key=f"{session_key}_btn"):
         if not api_key:
-            st.error("Enter your Groq API key in the sidebar first.")
+            st.error("Enter your Google AI Studio API key in the sidebar first.")
         else:
             with st.spinner(f"Extracting {label}... (can take up to a minute on a slow connection — "
                             f"the image has to fully upload before the AI can read it)"):
@@ -134,12 +134,12 @@ if picked_color != st.session_state.accent_color:
     st.query_params["role"] = st.session_state.role
     st.rerun()
 
-api_key = st.secrets.get("GROQ_API_KEY", "")
+api_key = st.secrets.get("GEMINI_API_KEY", "")
 if not api_key:
-    api_key = st.sidebar.text_input("Groq API Key", type="password",
-                                     help="Get a free key at console.groq.com")
+    api_key = st.sidebar.text_input("Google AI Studio API Key", type="password",
+                                     help="Get a free key at aistudio.google.com/apikey")
 else:
-    st.sidebar.caption("✅ Groq API key loaded from app secrets.")
+    st.sidebar.caption("✅ Google API key loaded from app secrets.")
 
 st.sidebar.caption(
     "Multi-agent examination evaluator: dual independent grading, "
@@ -200,7 +200,7 @@ if tab_teacher is not None:
                 missing.append("Student's Answers")
 
             if not api_key:
-                st.error("Enter your Groq API key in the sidebar first.")
+                st.error("Enter your Google AI Studio API key in the sidebar first.")
             elif missing:
                 st.error(
                     f"⚠️ Still empty: **{', '.join(missing)}**. "
@@ -216,7 +216,7 @@ if tab_teacher is not None:
                         api_key, "Evaluator A", question_paper, answer_key, rubric, student_answer)
 
                     progress.progress(25, text="Pausing ~25s so Evaluator B doesn't hit "
-                                                "Groq's free-tier per-minute limit...")
+                                                "Google's free-tier per-minute limit...")
                     time.sleep(25)
                     progress.progress(35, text="Evaluator B grading independently...")
                     secondary_eval, secondary_err = agents.run_evaluator(
@@ -339,7 +339,7 @@ with tab_appeal:
             appeal_reason = st.text_area("Why do you think this mark should be reconsidered?")
             if st.button("📨 Submit Appeal"):
                 if not api_key:
-                    st.error("Enter your Groq API key in the sidebar first.")
+                    st.error("Enter your Google AI Studio API key in the sidebar first.")
                 elif not appeal_reason:
                     st.error("Please explain your reason for appeal.")
                 else:
@@ -381,7 +381,7 @@ if tab_difficulty is not None:
                                           key="difficulty_qp")
         if st.button("Analyze Difficulty"):
             if not api_key:
-                st.error("Enter your Groq API key in the sidebar first.")
+                st.error("Enter your Google AI Studio API key in the sidebar first.")
             elif not qp_for_difficulty:
                 st.error("Paste a question paper first.")
             else:
