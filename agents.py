@@ -11,29 +11,70 @@ import time
 from pypdf import PdfReader
 from PIL import Image, ImageEnhance, ImageOps
 
-API_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 MODEL_TEXT = "gemini-2.5-flash"    # Google's free tier: ~250k-1M tokens/minute (vs Groq's ~6-8k)
 MODEL_VISION = "gemini-2.5-flash"  # same model handles vision natively, no separate model needed
 
 
 # ---------------------------------------------------------------------------
-# LOW-LEVEL API HELPERS
+# LOW-LEVEL API HELPERS — Gemini's NATIVE API (not the OpenAI-compat shim).
+# New-format "AQ." Gemini keys are known to fail (401) on the OpenAI-compatible
+# endpoint but work correctly here, so this talks to Gemini directly.
 # ---------------------------------------------------------------------------
+def _parse_data_url(data_url):
+    """Splits a 'data:image/jpeg;base64,....' URL into (mime_type, base64_data)."""
+    header, b64data = data_url.split(",", 1)
+    mime_type = header.split(":")[1].split(";")[0]
+    return mime_type, b64data
+
+
+def _messages_to_gemini(messages):
+    """Converts our OpenAI-style messages list into Gemini's native request shape."""
+    system_instruction = None
+    contents = []
+    for m in messages:
+        role = m["role"]
+        content = m["content"]
+
+        if role == "system":
+            system_instruction = content if isinstance(content, str) else None
+            continue
+
+        gemini_role = "model" if role == "assistant" else "user"
+        parts = []
+        if isinstance(content, str):
+            parts.append({"text": content})
+        else:
+            # vision-style content: list of {"type": "text"/"image_url", ...} blocks
+            for block in content:
+                if block.get("type") == "text":
+                    parts.append({"text": block["text"]})
+                elif block.get("type") == "image_url":
+                    mime_type, b64data = _parse_data_url(block["image_url"]["url"])
+                    parts.append({"inline_data": {"mime_type": mime_type, "data": b64data}})
+        contents.append({"role": gemini_role, "parts": parts})
+
+    return system_instruction, contents
+
+
 def _call_llm(api_key, messages, model=MODEL_TEXT, temperature=0.4,
                 max_tokens=1200, json_mode=False, max_retries=4, timeout=90):
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
+    system_instruction, contents = _messages_to_gemini(messages)
+
+    generation_config = {"temperature": temperature, "maxOutputTokens": max_tokens}
     if json_mode:
-        payload["response_format"] = {"type": "json_object"}
+        generation_config["responseMimeType"] = "application/json"
+
+    payload = {"contents": contents, "generationConfig": generation_config}
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+    url = f"{API_BASE}/{model}:generateContent"
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
 
     for attempt in range(max_retries):
         try:
-            resp = requests.post(API_URL, headers=headers, json=payload, timeout=timeout)
+            resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
         except requests.exceptions.Timeout:
             raise RuntimeError(
                 "The request timed out — this usually means your internet connection is too slow "
@@ -57,19 +98,27 @@ def _call_llm(api_key, messages, model=MODEL_TEXT, temperature=0.4,
                                 "Double-check the key in the sidebar / Secrets — get one free "
                                 "at aistudio.google.com/apikey.")
 
-        if resp.status_code == 400 and "json_validate_failed" in resp.text:
+        try:
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"Google API error ({resp.status_code}): {resp.text[:300]}") from e
+
+        data = resp.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            raise RuntimeError("Google returned no response candidates — the request may have "
+                                "been blocked by a safety filter. Try again or adjust the input.")
+
+        candidate = candidates[0]
+        if candidate.get("finishReason") == "MAX_TOKENS":
             raise RuntimeError(
                 "The AI's response got cut off before it finished (usually because the "
                 "question paper/answers are long and hit the output length limit). "
                 "Try again — if it keeps happening, shorten the rubric/answers a little."
             )
 
-        try:
-            resp.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            raise RuntimeError(f"Google API error ({resp.status_code}): {resp.text[:300]}") from e
-
-        return resp.json()["choices"][0]["message"]["content"]
+        parts = candidate.get("content", {}).get("parts", [])
+        return "".join(p.get("text", "") for p in parts)
 
 
 def _call_llm_json(api_key, messages, model=MODEL_TEXT, temperature=0.3, max_tokens=2500):
