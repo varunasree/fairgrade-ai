@@ -232,6 +232,7 @@ Respond ONLY with valid JSON in this exact shape (no markdown, no extra text):
 }
 Be specific and rubric-grounded, but keep every "reasoning" field short — one sentence, not a
 paragraph. This is a hard length limit, not a suggestion: brevity matters more than completeness here.
+Output compact JSON with minimal whitespace (no pretty-printing/indentation) to save space.
 Never award marks without a stated reason.
 """
 
@@ -257,7 +258,7 @@ def run_evaluator(api_key, evaluator_label, question_paper, answer_key, rubric, 
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages, max_tokens=2200)
+    return _call_groq_json(api_key, messages, max_tokens=3800)
 # ---------------------------------------------------------------------------
 def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval):
     system_prompt = (
@@ -280,7 +281,7 @@ def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval)
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages, max_tokens=2200)
+    return _call_groq_json(api_key, messages, max_tokens=3800)
 
 
 # ---------------------------------------------------------------------------
