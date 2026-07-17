@@ -11,15 +11,15 @@ import time
 from pypdf import PdfReader
 from PIL import Image, ImageEnhance, ImageOps
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL_TEXT = "openai/gpt-oss-20b"        # smaller model = higher free-tier rate limits (2026)
-MODEL_VISION = "qwen/qwen3.6-27b"        # current Groq free-tier vision-capable model (2026)
+API_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+MODEL_TEXT = "gemini-2.5-flash"    # Google's free tier: ~250k-1M tokens/minute (vs Groq's ~6-8k)
+MODEL_VISION = "gemini-2.5-flash"  # same model handles vision natively, no separate model needed
 
 
 # ---------------------------------------------------------------------------
 # LOW-LEVEL API HELPERS
 # ---------------------------------------------------------------------------
-def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
+def _call_llm(api_key, messages, model=MODEL_TEXT, temperature=0.4,
                 max_tokens=1200, json_mode=False, max_retries=4, timeout=90):
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {
@@ -33,7 +33,7 @@ def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
 
     for attempt in range(max_retries):
         try:
-            resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=timeout)
+            resp = requests.post(API_URL, headers=headers, json=payload, timeout=timeout)
         except requests.exceptions.Timeout:
             raise RuntimeError(
                 "The request timed out — this usually means your internet connection is too slow "
@@ -48,13 +48,14 @@ def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
                 time.sleep(wait_seconds)
                 continue
             raise RuntimeError(
-                "Groq's free-tier rate limit was hit repeatedly. Wait about a minute "
+                "Google's free-tier rate limit was hit repeatedly. Wait about a minute "
                 "before trying again, or space out your requests."
             )
 
-        if resp.status_code == 401:
-            raise RuntimeError("Groq rejected the API key (401 Unauthorized). "
-                                "Double-check the key in the sidebar / Secrets.")
+        if resp.status_code == 401 or resp.status_code == 403:
+            raise RuntimeError("Google rejected the API key (401/403 Unauthorized). "
+                                "Double-check the key in the sidebar / Secrets — get one free "
+                                "at aistudio.google.com/apikey.")
 
         if resp.status_code == 400 and "json_validate_failed" in resp.text:
             raise RuntimeError(
@@ -66,14 +67,14 @@ def _call_groq(api_key, messages, model=MODEL_TEXT, temperature=0.4,
         try:
             resp.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            raise RuntimeError(f"Groq API error ({resp.status_code}): {resp.text[:300]}") from e
+            raise RuntimeError(f"Google API error ({resp.status_code}): {resp.text[:300]}") from e
 
         return resp.json()["choices"][0]["message"]["content"]
 
 
-def _call_groq_json(api_key, messages, model=MODEL_TEXT, temperature=0.3, max_tokens=2500):
+def _call_llm_json(api_key, messages, model=MODEL_TEXT, temperature=0.3, max_tokens=2500):
     """Calls the model in JSON mode and safely parses the result."""
-    raw = _call_groq(api_key, messages, model=model, temperature=temperature,
+    raw = _call_llm(api_key, messages, model=model, temperature=temperature,
                       max_tokens=max_tokens, json_mode=True)
     try:
         return json.loads(raw), None
@@ -154,7 +155,7 @@ def ocr_extract_text(api_key, image_bytes, mime_type="image/png"):
             ],
         }
     ]
-    return _call_groq(api_key, messages, model=MODEL_VISION, temperature=0.0, max_tokens=3000,
+    return _call_llm(api_key, messages, model=MODEL_VISION, temperature=0.0, max_tokens=3000,
                        timeout=60, max_retries=2)
 
 
@@ -258,7 +259,7 @@ def run_evaluator(api_key, evaluator_label, question_paper, answer_key, rubric, 
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages, max_tokens=3800)
+    return _call_llm_json(api_key, messages, max_tokens=3800)
 # ---------------------------------------------------------------------------
 def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval):
     system_prompt = (
@@ -281,7 +282,7 @@ def run_moderator(api_key, question_paper, rubric, primary_eval, secondary_eval)
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages, max_tokens=3800)
+    return _call_llm_json(api_key, messages, max_tokens=3800)
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +306,7 @@ Be constructive and specific — reference actual patterns from the answers, not
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages)
+    return _call_llm_json(api_key, messages)
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +324,7 @@ Respond ONLY with valid JSON:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"QUESTION PAPER:\n{question_paper}"},
     ]
-    return _call_groq_json(api_key, messages)
+    return _call_llm_json(api_key, messages)
 
 
 # ---------------------------------------------------------------------------
@@ -352,4 +353,4 @@ content. Respond ONLY with valid JSON:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
-    return _call_groq_json(api_key, messages)
+    return _call_llm_json(api_key, messages)
