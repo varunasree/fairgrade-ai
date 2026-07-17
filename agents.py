@@ -94,9 +94,10 @@ def _call_llm(api_key, messages, model=MODEL_TEXT, temperature=0.4,
             )
 
         if resp.status_code == 401 or resp.status_code == 403:
-            raise RuntimeError("Google rejected the API key (401/403 Unauthorized). "
-                                "Double-check the key in the sidebar / Secrets — get one free "
-                                "at aistudio.google.com/apikey.")
+            raise RuntimeError(
+                f"Google rejected the API key ({resp.status_code}). "
+                f"Google's exact reason: {resp.text[:500]}"
+            )
 
         try:
             resp.raise_for_status()
